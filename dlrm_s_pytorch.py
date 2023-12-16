@@ -89,6 +89,7 @@ try:
         fbDataLoader,
         fbInputBatchFormatter,
     )
+
     has_internal_libs = True
 except ImportError:
     has_internal_libs = False
@@ -162,9 +163,9 @@ def loss_fn_wrap(Z, T, use_gpu, device):
 # loop below.
 def unpack_batch(b):
     if args.data_generation == "internal":
-        return fbInputBatchFormatter(b,args.data_size)
+        return fbInputBatchFormatter(b, args.data_size)
     else:
-    # Experiment with unweighted samples
+        # Experiment with unweighted samples
         return b[0], b[1], b[2], b[3], torch.ones(b[3].size()), None
 
 
@@ -326,7 +327,6 @@ class DLRM_Net(nn.Module):
             and (ln_top is not None)
             and (arch_interaction_op is not None)
         ):
-
             # save arguments
             self.ndevices = ndevices
             self.output_d = 0
@@ -466,7 +466,6 @@ class DLRM_Net(nn.Module):
 
     #  using quantizing functions from caffe2/aten/src/ATen/native/quantized/cpu
     def quantize_embedding(self, bits):
-
         n = len(self.emb_l)
         self.emb_l_q = [None] * n
         for k in range(n):
@@ -485,7 +484,6 @@ class DLRM_Net(nn.Module):
         self.quantize_bits = bits
 
     def interact_features(self, x, ly):
-
         if self.arch_interaction_op == "dot":
             # concatenate dense and sparse features
             (batch_size, d) = x.shape
@@ -943,7 +941,10 @@ def run():
     parser.add_argument("--data-size", type=int, default=1)
     parser.add_argument("--num-batches", type=int, default=0)
     parser.add_argument(
-        "--data-generation", type=str,choices=["random","dataset","internal"], default="random"
+        "--data-generation",
+        type=str,
+        choices=["random", "dataset", "internal"],
+        default="random",
     )  # synthetic, dataset or internal
     parser.add_argument(
         "--rand-data-dist", type=str, default="uniform"
@@ -988,6 +989,8 @@ def run():
     parser.add_argument("--quantize-emb-with-bit", type=int, default=32)
     # onnx
     parser.add_argument("--save-onnx", action="store_true", default=False)
+    # export model
+    parser.add_argument("--export-model", action="store_true", default=False)
     # gpu
     parser.add_argument("--use-gpu", action="store_true", default=False)
     # distributed
@@ -1129,7 +1132,7 @@ def run():
             raise Exception("Internal libraries are not available.")
         NUM_BATCHES = 5000
         nbatches = args.num_batches if args.num_batches > 0 else NUM_BATCHES
-        train_ld,feature_to_num_embeddings = fbDataLoader(args.data_size,nbatches)
+        train_ld, feature_to_num_embeddings = fbDataLoader(args.data_size, nbatches)
         ln_emb = np.array(list(feature_to_num_embeddings.values()))
         m_den = ln_bot[0]
     else:
@@ -1541,7 +1544,7 @@ def run():
                     previous_iteration_time = None
 
                 for j, inputBatch in enumerate(train_ld):
-                    if j == 0 and args.save_onnx:
+                    if j == 0 and (args.save_onnx or args.export_model):
                         X_onnx, lS_o_onnx, lS_i_onnx, _, _, _ = unpack_batch(inputBatch)
 
                     if j < skip_upto_batch:
@@ -1902,6 +1905,15 @@ def run():
         dlrm_pytorch_onnx = onnx.load("dlrm_s_pytorch.onnx")
         # check the onnx model
         onnx.checker.check_model(dlrm_pytorch_onnx)
+    # export the model
+    if args.export_model:
+        try:
+            torch.export.export(dlrm, (X_onnx, lS_o_onnx, lS_i_onnx))
+            print("[JIT] torch.export successed.")
+            exit(0)
+        except Exception as e:
+            print("[JIT] torch.export failed.")
+            raise e
     total_time_end = time_wrap(use_gpu)
 
 
